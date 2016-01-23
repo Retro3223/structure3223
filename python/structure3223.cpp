@@ -133,8 +133,8 @@ PyObject *read_frame_into_array(VideoFrameRef frame) {
     void *data = PyMem_Malloc(frame.getDataSize());
     memcpy(data, frame.getData(), frame.getDataSize());
     npy_intp dims[2];
-    dims[0] = frame.getWidth(); 
-    dims[1] = frame.getHeight();
+    dims[1] = frame.getWidth(); 
+    dims[0] = frame.getHeight();
     return PyArray_SimpleNewFromData(2, dims, NPY_USHORT, data);
 }
 
