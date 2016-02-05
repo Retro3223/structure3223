@@ -1,0 +1,9 @@
+Package: opencv
+Version: 3.1-1
+Section: base
+Priority: optional
+Architecture: armhf
+Depends: libstdc++6, libgcc1, zlib1g, libjpeg8, libpng12-0, libjasper1, libjpeg62-turbo, libpython3.4, python3, python3-numpy
+Maintainer: yo mama <yomama@yomama.com>
+Description: OpenCV
+ OpenCV 3.1 build for raspberry pi

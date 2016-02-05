@@ -1,0 +1,9 @@
+Package: openni
+Version: 2.2-1
+Section: base
+Priority: optional
+Architecture: armhf
+Depends: libusb-1.0-0, libudev1
+Maintainer: yo mama <yomama@yomama.com>
+Description: OpenNI2
+ Lets us read structure sensor.
