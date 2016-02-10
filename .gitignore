@@ -1,0 +1,5 @@
+*.so
+.ropeproject
+.ipynb_checkpoints
+__pycache__
+build

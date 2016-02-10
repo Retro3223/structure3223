@@ -1,9 +1,12 @@
 import structure3223
+import numpy
 import cv2
 
 
 def main():
-    depth, ir = structure3223.read_frame()
+    depth = numpy.empty(shape=(240, 320), dtype='uint16')
+    ir = numpy.empty(shape=(240, 320), dtype='uint16')
+    structure3223.read_frame(depth=depth, ir=ir)
     cv2.imwrite("depth.jpeg", depth)
     cv2.imwrite("ir.jpeg", ir)
 

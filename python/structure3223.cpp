@@ -17,15 +17,15 @@ static VideoStream depthStream, irStream;
 const char *modeToString(VideoMode mode);
 
 const char *errorMessage(const char *msg);
-PyObject *read_frame_into_array(VideoFrameRef frame);
+PyObject *read_frame_into_array(PyObject *dst, VideoFrameRef frame);
 
 PyObject *read_a_frame(
+        PyObject *dst,
         VideoStream& stream, int timeout, 
         PixelFormat expectedPixelFormat);
 
-int get_timeout(PyObject *args);
-
 #define ERR_N_DIE(p) {PyErr_SetString(PyExc_RuntimeError, errorMessage(p)); return NULL;}
+#define ERR_N_DIE_NO_NI(p) {PyErr_SetString(PyExc_RuntimeError, (p)); return NULL;}
 
 PyObject *structure_init(PyObject *self, PyObject *args) {
     import_array(); // required for to use numpy C-API
@@ -68,29 +68,45 @@ const char *errorMessage(const char *msg) {
     std::string result(msg);
     result += ": ";
     result += OpenNI::getExtendedError();
-    std::cout << "Oh darn: " << result << std::endl;
+    std::cout << result << std::endl;
     return result.c_str();
 }
 
-PyObject* structure_read_frame(PyObject *self, PyObject *args) {
-    int timeout = get_timeout(args);
-    PyObject *depthArray = read_a_frame(
-            depthStream, timeout, PIXEL_FORMAT_DEPTH_1_MM);
-    // error or timeout
-    if(depthArray == NULL || depthArray == Py_None) return depthArray;
-    PyObject *irArray = read_a_frame(
-            irStream, timeout, PIXEL_FORMAT_GRAY16);
-    // error or timeout
-    if(irArray == NULL || irArray == Py_None) return irArray;
+PyObject* structure_read_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
+    PyObject *depth = NULL;
+    PyObject *ir = NULL;
+    int timeout = TIMEOUT_FOREVER;
+    int result = -1;
+    static char *argnoms[] = {"depth", "ir", "timeout", NULL};
+    PyArg_ParseTupleAndKeywords(args, kwargs, "OO|i", argnoms, &depth, &ir, &timeout);
+
+    if(depth == NULL) {
+        ERR_N_DIE_NO_NI("parameter depth not provided");
+    }
+    if(ir == NULL) {
+        ERR_N_DIE_NO_NI("parameter ir not provided");
+    }
+
+    depth = read_a_frame(depth, depthStream, timeout, PIXEL_FORMAT_DEPTH_1_MM);
+    // error 
+    if(depth == NULL) return NULL;
+    // timeout
+    if(depth == Py_None) return Py_None;
+    ir = read_a_frame(ir, irStream, timeout, PIXEL_FORMAT_GRAY16);
+    // error 
+    if(ir == NULL) return NULL;
+    // timeout
+    if(ir == Py_None) return Py_None;
 
     PyObject *arrayTuple = PyTuple_New(2);
-    PyTuple_SetItem(arrayTuple, 0, depthArray);
-    PyTuple_SetItem(arrayTuple, 1, irArray);
+    PyTuple_SetItem(arrayTuple, 0, depth);
+    PyTuple_SetItem(arrayTuple, 1, ir);
 
     return arrayTuple;
 }
 
 PyObject *read_a_frame(
+        PyObject *dst,
         VideoStream& stream, 
         int timeout, 
         PixelFormat expectedPixelFormat) 
@@ -113,29 +129,50 @@ PyObject *read_a_frame(
         PyErr_SetString(PyExc_RuntimeError, strm.str().c_str()); 
         return NULL;
     }
-    PyObject *array = read_frame_into_array(frame);
+    PyObject *array = read_frame_into_array(dst, frame);
     return array;
 }
 
-int get_timeout(PyObject *args) {
-    int timeout = TIMEOUT_FOREVER;
-    int size = PyTuple_Size(args);
-    if(size >= 1) {
-        PyObject *pyTimeout = PyTuple_GetItem(args, 0);
-        if(PyLong_Check(pyTimeout)) {
-            timeout = PyLong_AsLong(pyTimeout);
-        }
+PyObject *check_buffer_against_frame(
+        PyObject *dst, Py_buffer *buffer, VideoFrameRef frame) {
+    if(!PyObject_CheckBuffer(dst)) {
+        ERR_N_DIE_NO_NI("read_frame was passed a non-buffer");
     }
-    return timeout;
+    if(PyObject_GetBuffer(dst, buffer, PyBUF_WRITABLE | PyBUF_ND) != 0) {
+        ERR_N_DIE_NO_NI("read_frame was passed a read only buffer (?)");
+    }
+    if(!PyBuffer_IsContiguous(buffer, 'C')) {
+        ERR_N_DIE_NO_NI("read_frame was passed a noncontiguous buffer");
+    }
+    std::stringstream str;
+    if(buffer->ndim != 2) {
+        str << "expected ndim=2, got ndim=" << buffer->ndim;
+        ERR_N_DIE_NO_NI(str.str().c_str());
+    }
+    if(buffer->shape[0] != frame.getHeight() || 
+            buffer->shape[1] != frame.getWidth()) {
+        str << "expected shape=(" << frame.getHeight();
+        str << ", " << frame.getWidth() << "), got shape=(";
+        str << buffer->shape[0] << ", " << buffer->shape[1] << ")";
+        ERR_N_DIE_NO_NI(str.str().c_str());
+    }
+    int expected_item_size = frame.getDataSize() / frame.getHeight();
+    expected_item_size /= frame.getWidth();
+    if(buffer->itemsize != expected_item_size) {
+        str << "expected item size=" << expected_item_size;
+        str << ", got item size=" << buffer->itemsize;
+        ERR_N_DIE_NO_NI(str.str().c_str());
+    }
+    return dst;
 }
 
-PyObject *read_frame_into_array(VideoFrameRef frame) {
-    void *data = PyMem_Malloc(frame.getDataSize());
-    memcpy(data, frame.getData(), frame.getDataSize());
-    npy_intp dims[2];
-    dims[1] = frame.getWidth(); 
-    dims[0] = frame.getHeight();
-    return PyArray_SimpleNewFromData(2, dims, NPY_USHORT, data);
+PyObject *read_frame_into_array(PyObject *dst, VideoFrameRef frame) {
+    Py_buffer buffer;
+    if(!check_buffer_against_frame(dst, &buffer, frame)) {
+        return NULL;
+    }
+    memcpy(buffer.buf, frame.getData(), frame.getDataSize());
+    return dst;
 }
 
 #define STRENUM(p) case (p): return #p; 
@@ -160,7 +197,7 @@ const char *modeToString(VideoMode mode) {
 static PyMethodDef methods[] = {
     {"init", &structure_init, METH_VARARGS, 
         "Initializer function. Call this before trying to read the structure sensor."},
-    {"read_frame", &structure_read_frame, METH_VARARGS, 
+    {"read_frame", (PyCFunction) &structure_read_frame, METH_VARARGS | METH_KEYWORDS, 
         "reads a frame from the depth sensor and infrared camera and returns (depthFrame, irFrame). Can be given a timeout. will return None if timeout is exceeded."},
     {"destroy", &structure_destroy, METH_VARARGS, 
         "close function. Call this before stopping your program."},
