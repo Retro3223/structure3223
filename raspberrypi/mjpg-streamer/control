@@ -1,0 +1,9 @@
+Package: mjpg-streamer
+Version: 1.0
+Section: base
+Priority: optional
+Architecture: armhf
+Depends: libjpeg8, libraspberrypi0
+Maintainer: yo mama <yomama@yomama.com>
+Description: mjpg streamer for raspi
+ from https://github.com/jacksonliam/mjpg-streamer
