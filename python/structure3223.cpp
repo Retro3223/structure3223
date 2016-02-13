@@ -24,6 +24,7 @@ PyObject *read_a_frame(
         VideoStream& stream, int timeout, 
         PixelFormat expectedPixelFormat,
         char *nom);
+PyObject *chooseDepthVideoMode();
 
 #define ERR_N_DIE(p) {PyErr_SetString(PyExc_RuntimeError, errorMessage(p)); return NULL;}
 #define ERR_N_DIE_NO_NI(p) {PyErr_SetString(PyExc_RuntimeError, (p)); return NULL;}
@@ -41,6 +42,7 @@ PyObject *structure_init(PyObject *self, PyObject *args) {
     if (rc != STATUS_OK) ERR_N_DIE("depth stream create failed");
     rc = irStream.create(device, SENSOR_IR);
     if (rc != STATUS_OK) ERR_N_DIE("ir stream create failed");
+    if(chooseDepthVideoMode() == NULL) return NULL;
     rc = device.setDepthColorSyncEnabled(true);
     if (rc != STATUS_OK) ERR_N_DIE("device color sync failed");
     rc = depthStream.start();
@@ -52,6 +54,27 @@ PyObject *structure_init(PyObject *self, PyObject *args) {
     structure_initialized = true;
     Py_INCREF(Py_None);
     return Py_None;
+}
+
+PyObject *chooseDepthVideoMode() {
+	const SensorInfo *sensorInfo = device.getSensorInfo(SENSOR_DEPTH);
+	const Array<VideoMode> &videoModes = sensorInfo->getSupportedVideoModes();
+	int gotit = 0;
+	for(int i = 0; i < videoModes.getSize(); i++) {
+		std::cout << "larl " << i << std::endl;
+		if(videoModes[i].getFps() == 30 &&
+		   videoModes[i].getResolutionX() == 320 &&
+		   videoModes[i].getResolutionY() == 240 &&
+		   videoModes[i].getPixelFormat() == PIXEL_FORMAT_DEPTH_1_MM) {
+			depthStream.setVideoMode(videoModes[i]);
+			gotit = 1;
+			break;
+		}
+	}
+	if(gotit == 0) {
+		ERR_N_DIE_NO_NI("Couldn't find suitable video mode for depth sensor");
+	}
+	return Py_None;
 }
 
 PyObject *structure_destroy(PyObject *self, PyObject *args) {
