@@ -17,12 +17,13 @@ static VideoStream depthStream, irStream;
 const char *modeToString(VideoMode mode);
 
 const char *errorMessage(const char *msg);
-PyObject *read_frame_into_array(PyObject *dst, VideoFrameRef frame);
+PyObject *read_frame_into_array(PyObject *dst, VideoFrameRef frame, char *nom);
 
 PyObject *read_a_frame(
         PyObject *dst,
         VideoStream& stream, int timeout, 
-        PixelFormat expectedPixelFormat);
+        PixelFormat expectedPixelFormat,
+        char *nom);
 
 #define ERR_N_DIE(p) {PyErr_SetString(PyExc_RuntimeError, errorMessage(p)); return NULL;}
 #define ERR_N_DIE_NO_NI(p) {PyErr_SetString(PyExc_RuntimeError, (p)); return NULL;}
@@ -87,12 +88,12 @@ PyObject* structure_read_frame(PyObject *self, PyObject *args, PyObject *kwargs)
         ERR_N_DIE_NO_NI("parameter ir not provided");
     }
 
-    depth = read_a_frame(depth, depthStream, timeout, PIXEL_FORMAT_DEPTH_1_MM);
+    depth = read_a_frame(depth, depthStream, timeout, PIXEL_FORMAT_DEPTH_1_MM, "depth");
     // error 
     if(depth == NULL) return NULL;
     // timeout
     if(depth == Py_None) return Py_None;
-    ir = read_a_frame(ir, irStream, timeout, PIXEL_FORMAT_GRAY16);
+    ir = read_a_frame(ir, irStream, timeout, PIXEL_FORMAT_GRAY16, "ir");
     // error 
     if(ir == NULL) return NULL;
     // timeout
@@ -109,7 +110,8 @@ PyObject *read_a_frame(
         PyObject *dst,
         VideoStream& stream, 
         int timeout, 
-        PixelFormat expectedPixelFormat) 
+        PixelFormat expectedPixelFormat,
+        char *nom) 
 {
     VideoStream *pStream = &stream;
     Status rc;
@@ -129,24 +131,28 @@ PyObject *read_a_frame(
         PyErr_SetString(PyExc_RuntimeError, strm.str().c_str()); 
         return NULL;
     }
-    PyObject *array = read_frame_into_array(dst, frame);
+    PyObject *array = read_frame_into_array(dst, frame, nom);
     return array;
 }
 
 PyObject *check_buffer_against_frame(
-        PyObject *dst, Py_buffer *buffer, VideoFrameRef frame) {
+        PyObject *dst, Py_buffer *buffer, VideoFrameRef frame, char *nom) {
+    std::stringstream str;
     if(!PyObject_CheckBuffer(dst)) {
-        ERR_N_DIE_NO_NI("read_frame was passed a non-buffer");
+        str << "read_frame was passed a non-buffer for " << nom;
+        ERR_N_DIE_NO_NI(str.str().c_str());
     }
     if(PyObject_GetBuffer(dst, buffer, PyBUF_WRITABLE | PyBUF_ND) != 0) {
-        ERR_N_DIE_NO_NI("read_frame was passed a read only buffer (?)");
+        str << "read_frame was passed a read only buffer (?) for " << nom;
+        ERR_N_DIE_NO_NI(str.str().c_str());
     }
     if(!PyBuffer_IsContiguous(buffer, 'C')) {
-        ERR_N_DIE_NO_NI("read_frame was passed a noncontiguous buffer");
+        str << "read_frame was passed a noncontiguous buffer for " << nom;
+        ERR_N_DIE_NO_NI(str.str().c_str());
     }
-    std::stringstream str;
     if(buffer->ndim != 2) {
-        str << "expected ndim=2, got ndim=" << buffer->ndim;
+        str << "expected ndim=2, got ndim=" << buffer->ndim; 
+        str << " for " << nom;
         ERR_N_DIE_NO_NI(str.str().c_str());
     }
     if(buffer->shape[0] != frame.getHeight() || 
@@ -154,6 +160,7 @@ PyObject *check_buffer_against_frame(
         str << "expected shape=(" << frame.getHeight();
         str << ", " << frame.getWidth() << "), got shape=(";
         str << buffer->shape[0] << ", " << buffer->shape[1] << ")";
+        str << " for " << nom;
         ERR_N_DIE_NO_NI(str.str().c_str());
     }
     int expected_item_size = frame.getDataSize() / frame.getHeight();
@@ -161,14 +168,15 @@ PyObject *check_buffer_against_frame(
     if(buffer->itemsize != expected_item_size) {
         str << "expected item size=" << expected_item_size;
         str << ", got item size=" << buffer->itemsize;
+        str << " for " << nom;
         ERR_N_DIE_NO_NI(str.str().c_str());
     }
     return dst;
 }
 
-PyObject *read_frame_into_array(PyObject *dst, VideoFrameRef frame) {
+PyObject *read_frame_into_array(PyObject *dst, VideoFrameRef frame, char *nom) {
     Py_buffer buffer;
-    if(!check_buffer_against_frame(dst, &buffer, frame)) {
+    if(!check_buffer_against_frame(dst, &buffer, frame, nom)) {
         return NULL;
     }
     memcpy(buffer.buf, frame.getData(), frame.getDataSize());
