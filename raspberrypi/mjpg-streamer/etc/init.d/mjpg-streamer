@@ -1,0 +1,46 @@
+#!/bin/bash
+
+source /etc/default/mjpg-streamer
+
+startthings() {
+    for i in $(seq 1 4); do
+        PIDFILE="${PIDFILE[$i]}"
+        if [ ! -z "$PIDFILE" ]; then
+            echo -n "starting mjpg-streamer (camera $i)"
+            FPS="${FPS[$i]}"
+            RES="${RESOLUTION[$i]}"
+            PORT="${PORT[$i]}"
+            INPUT="${INPUT[$i]} -f $FPS -r $RES"
+            OUTPUT="${OUTPUT[$i]} -p ${PORT}"
+            start-stop-daemon --pidfile=$PIDFILE -b -m --start \
+                --exec /bin/mjpg_streamer -- -i "${INPUT}" -o "${OUTPUT}"
+            echo "."
+        fi
+    done
+}
+
+stopthings() {
+    for i in $(seq 1 4); do
+        PIDFILE="${PIDFILE[$i]}"
+        if [ ! -z "$PIDFILE" ]; then
+            echo -n "stopping mjpg-streamer (camera $i)"
+            start-stop-daemon --pidfile=$PIDFILE --stop  && \
+                rm -f $PIDFILE
+            echo "."
+        fi
+    done
+}
+
+case "$1" in
+    start)
+        startthings
+        ;;
+    stop)
+        stopthings
+        ;;
+    force-reload|restart|reload)
+        stopthings
+        startthings
+        ;;
+esac
+
