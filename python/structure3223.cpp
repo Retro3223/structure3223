@@ -1,33 +1,16 @@
-#include <Python.h>
+#include "structure3223.h"
 #include <iostream>
 #include <string>
 #include <sstream>
 #include <string.h>
-#include <ni2/OpenNI.h>
 #include <numpy/arrayobject.h>
 #include <numpy/npy_common.h>
-#define NPY_NO_DEPRECATED_API
 
-using namespace openni;
 
 static VideoFrameRef depthFrame, irFrame;
 static Device device;
 static bool structure_initialized;
 static VideoStream depthStream, irStream;
-const char *modeToString(VideoMode mode);
-
-const char *errorMessage(const char *msg);
-PyObject *read_frame_into_array(PyObject *dst, VideoFrameRef frame, char *nom);
-
-PyObject *read_a_frame(
-        PyObject *dst,
-        VideoStream& stream, int timeout, 
-        PixelFormat expectedPixelFormat,
-        char *nom);
-PyObject *chooseDepthVideoMode();
-
-#define ERR_N_DIE(p) {PyErr_SetString(PyExc_RuntimeError, errorMessage(p)); return NULL;}
-#define ERR_N_DIE_NO_NI(p) {PyErr_SetString(PyExc_RuntimeError, (p)); return NULL;}
 
 PyObject *structure_init(PyObject *self, PyObject *args) {
     import_array(); // required for to use numpy C-API
@@ -96,7 +79,8 @@ const char *errorMessage(const char *msg) {
     return result.c_str();
 }
 
-PyObject* structure_read_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
+PyObject *structure_read_frame(
+        PyObject *self, PyObject *args, PyObject *kwargs) {
     PyObject *depth = NULL;
     PyObject *ir = NULL;
     int timeout = TIMEOUT_FOREVER;
@@ -134,7 +118,7 @@ PyObject *read_a_frame(
         VideoStream& stream, 
         int timeout, 
         PixelFormat expectedPixelFormat,
-        char *nom) 
+        const char *nom) 
 {
     VideoStream *pStream = &stream;
     Status rc;
@@ -154,52 +138,64 @@ PyObject *read_a_frame(
         PyErr_SetString(PyExc_RuntimeError, strm.str().c_str()); 
         return NULL;
     }
-    PyObject *array = read_frame_into_array(dst, frame, nom);
+    PyObject *array = read_frame_into_array(dst, frame, "read_frame", nom);
     return array;
 }
 
-PyObject *check_buffer_against_frame(
-        PyObject *dst, Py_buffer *buffer, VideoFrameRef frame, char *nom) {
+PyObject *check_buffer(
+        PyObject *dst, Py_buffer *buffer, 
+        const char *funcnom, const char *nom, int write,
+        int height, int width, int size) {
     std::stringstream str;
     if(!PyObject_CheckBuffer(dst)) {
-        str << "read_frame was passed a non-buffer for " << nom;
+        str << funcnom << " was passed a non-buffer for " << nom;
         ERR_N_DIE_NO_NI(str.str().c_str());
     }
-    if(PyObject_GetBuffer(dst, buffer, PyBUF_WRITABLE | PyBUF_ND) != 0) {
-        str << "read_frame was passed a read only buffer (?) for " << nom;
-        ERR_N_DIE_NO_NI(str.str().c_str());
+    if(write) {
+        if(PyObject_GetBuffer(dst, buffer, PyBUF_WRITABLE | PyBUF_ND) != 0) {
+            str << funcnom << " was passed a read only buffer (?) for " << nom;
+            ERR_N_DIE_NO_NI(str.str().c_str());
+        }
+    }else{
+        if(PyObject_GetBuffer(dst, buffer, PyBUF_ND) != 0) {
+            str << funcnom << " was passed a ??not good enough?? buffer for ";
+            str << nom;
+            ERR_N_DIE_NO_NI(str.str().c_str());
+        }
     }
     if(!PyBuffer_IsContiguous(buffer, 'C')) {
-        str << "read_frame was passed a noncontiguous buffer for " << nom;
+        str << funcnom << " was passed a noncontiguous buffer for " << nom;
         ERR_N_DIE_NO_NI(str.str().c_str());
     }
     if(buffer->ndim != 2) {
-        str << "expected ndim=2, got ndim=" << buffer->ndim; 
+        str << funcnom << " expected ndim=2, got ndim=" << buffer->ndim; 
         str << " for " << nom;
         ERR_N_DIE_NO_NI(str.str().c_str());
     }
-    if(buffer->shape[0] != frame.getHeight() || 
-            buffer->shape[1] != frame.getWidth()) {
-        str << "expected shape=(" << frame.getHeight();
-        str << ", " << frame.getWidth() << "), got shape=(";
-        str << buffer->shape[0] << ", " << buffer->shape[1] << ")";
-        str << " for " << nom;
-        ERR_N_DIE_NO_NI(str.str().c_str());
-    }
-    int expected_item_size = frame.getDataSize() / frame.getHeight();
-    expected_item_size /= frame.getWidth();
-    if(buffer->itemsize != expected_item_size) {
-        str << "expected item size=" << expected_item_size;
-        str << ", got item size=" << buffer->itemsize;
-        str << " for " << nom;
-        ERR_N_DIE_NO_NI(str.str().c_str());
+    if(height != -1 && width != -1) {
+        if(buffer->shape[0] != height || 
+                buffer->shape[1] != width) {
+            str << funcnom << " expected shape=(" << height;
+            str << ", " << width << "), got shape=(";
+            str << buffer->shape[0] << ", " << buffer->shape[1] << ")";
+            str << " for " << nom;
+            ERR_N_DIE_NO_NI(str.str().c_str());
+        }
+        int expected_item_size = size / width / height;
+        if(buffer->itemsize != expected_item_size) {
+            str << funcnom << " expected item size=" << expected_item_size;
+            str << ", got item size=" << buffer->itemsize;
+            str << " for " << nom;
+            ERR_N_DIE_NO_NI(str.str().c_str());
+        }
     }
     return dst;
 }
 
-PyObject *read_frame_into_array(PyObject *dst, VideoFrameRef frame, char *nom) {
+PyObject *read_frame_into_array(PyObject *dst, VideoFrameRef frame, const char *funcnom, const char *bufnom) {
     Py_buffer buffer;
-    if(!check_buffer_against_frame(dst, &buffer, frame, nom)) {
+    if(!check_buffer(dst, &buffer, funcnom, bufnom, 1,
+                frame.getHeight(), frame.getWidth(), frame.getDataSize())) {
         return NULL;
     }
     memcpy(buffer.buf, frame.getData(), frame.getDataSize());
@@ -225,11 +221,243 @@ const char *modeToString(VideoMode mode) {
         }
 }
 
+PyObject *check_xyz(
+        PyObject *xyz, Py_buffer *buffer, 
+        const char *funcnom, const char *bufnom, 
+        int write, int expected_y_shape, int expected_x_shape) {
+    std::stringstream str;
+    if(!PyObject_CheckBuffer(xyz)) {
+        str << funcnom << " was passed a non-buffer for " << bufnom;
+        ERR_N_DIE_NO_NI(str.str().c_str());
+    }
+    if(write) {
+        if(PyObject_GetBuffer(xyz, buffer, PyBUF_WRITABLE | PyBUF_ND) != 0) {
+            str << funcnom << " was passed a read-only buffer for " << bufnom;
+            ERR_N_DIE_NO_NI(str.str().c_str());
+        }
+    }else{
+        if(PyObject_GetBuffer(xyz, buffer, PyBUF_ND) != 0) {
+            str << funcnom << " was passed a ??not good enough?? buffer for ";
+            str << bufnom;
+            ERR_N_DIE_NO_NI(str.str().c_str());
+        }
+    }
+    if(!PyBuffer_IsContiguous(buffer, 'C')) {
+        str << funcnom << " was passed a noncontiguousbuffer for " << bufnom;
+        ERR_N_DIE_NO_NI(str.str().c_str());
+    }
+    if(buffer->ndim != 3) {
+        str << funcnom << " expected ndim=3, got ndim=" << buffer->ndim; 
+        str << " for " << bufnom;
+        ERR_N_DIE_NO_NI(str.str().c_str());
+    }
+    if(expected_y_shape != -1 && expected_x_shape != -1) {
+        if(buffer->shape[0] != 3 || 
+                buffer->shape[1] != expected_y_shape || 
+                buffer->shape[2] != expected_x_shape) {
+            str << funcnom << " expected shape=(3, " << expected_y_shape;
+            str << ", " << expected_x_shape << "), got shape=(";
+            str << buffer->shape[0] << ", " << buffer->shape[1]; 
+            str << ", " << buffer->shape[2] << ") for " << bufnom;
+            ERR_N_DIE_NO_NI(str.str().c_str());
+        }
+    }
+    if(buffer->itemsize != 4) {
+        str << "expected item size=" << 4;
+        str << ", got item size=" << buffer->itemsize;
+        str << " for " << bufnom << " (item should be float)";
+        ERR_N_DIE_NO_NI(str.str().c_str());
+    }
+    if(buffer->strides != NULL) {
+        str << "bugger, there are strides: [";
+        for (int i = 0; i < buffer->ndim; i++) {
+            str << buffer->strides[i];
+            if (i < buffer->ndim-1) {
+                str << ", ";
+            }
+        }
+        str << "]";
+        ERR_N_DIE_NO_NI(str.str().c_str());
+    }
+    return xyz;
+}
+
+PyObject *check_theta(
+        PyObject *theta, Py_buffer *buffer, 
+        const char *funcnom, const char *bufnom, 
+        int write, int expected_y_shape, int expected_x_shape) {
+    std::stringstream str;
+    if(!PyObject_CheckBuffer(theta)) {
+        str << funcnom << " was passed a non-buffer for " << bufnom;
+        ERR_N_DIE_NO_NI(str.str().c_str());
+    }
+    if(write) {
+        if(PyObject_GetBuffer(theta, buffer, PyBUF_WRITABLE | PyBUF_ND) != 0) {
+            str << funcnom << " was passed a read-only buffer for " << bufnom;
+            ERR_N_DIE_NO_NI(str.str().c_str());
+        }
+    }else{
+        if(PyObject_GetBuffer(theta, buffer, PyBUF_ND) != 0) {
+            str << funcnom << " was passed a ??not good enough?? buffer for ";
+            str << bufnom;
+            ERR_N_DIE_NO_NI(str.str().c_str());
+        }
+    }
+    if(!PyBuffer_IsContiguous(buffer, 'C')) {
+        str << funcnom << " was passed a noncontiguousbuffer for " << bufnom;
+        ERR_N_DIE_NO_NI(str.str().c_str());
+    }
+    if(buffer->ndim != 2) {
+        str << funcnom << " expected ndim=2, got ndim=" << buffer->ndim; 
+        str << " for " << bufnom;
+        ERR_N_DIE_NO_NI(str.str().c_str());
+    }
+    if(expected_y_shape != -1 && expected_x_shape != -1) {
+        if( 
+                buffer->shape[0] != expected_y_shape || 
+                buffer->shape[1] != expected_x_shape) {
+            str << funcnom << " expected shape=(3, " << expected_y_shape;
+            str << ", " << expected_x_shape << "), got shape=(";
+            str << buffer->shape[0] << ", " << buffer->shape[1]; 
+            str << ", " << buffer->shape[2] << ") for " << bufnom;
+            ERR_N_DIE_NO_NI(str.str().c_str());
+        }
+    }
+    if(buffer->itemsize != 4) {
+        str << "expected item size=" << 4;
+        str << ", got item size=" << buffer->itemsize;
+        str << " for " << bufnom << " (item should be float)";
+        ERR_N_DIE_NO_NI(str.str().c_str());
+    }
+    if(buffer->strides != NULL) {
+        str << "bugger, there are strides: [";
+        for (int i = 0; i < buffer->ndim; i++) {
+            str << buffer->strides[i];
+            if (i < buffer->ndim-1) {
+                str << ", ";
+            }
+        }
+        str << "]";
+        ERR_N_DIE_NO_NI(str.str().c_str());
+    }
+    return theta;
+}
+
+PyObject *structure_depth_to_xyz(
+        PyObject *self, PyObject *args, PyObject *kwargs) {
+    Py_buffer depth_buffer;
+    Py_buffer xyz_buffer;
+    std::stringstream str;
+    PyObject* depth = NULL;
+    PyObject* xyz = NULL;
+    static char *argnoms[] = {"depth", "xyz", NULL};
+    PyArg_ParseTupleAndKeywords(args, kwargs, "OO", argnoms, &depth, &xyz);
+
+    depth = check_buffer(depth, &depth_buffer, "depth_to_xyz", "depth", 0, -1, -1, -1);
+    if(depth == NULL) return NULL;
+    xyz = check_xyz(xyz, &xyz_buffer, "depth_to_xyz", "xyz", 1, 
+            depth_buffer.shape[0],
+            depth_buffer.shape[1]);
+    if(xyz == NULL) return NULL;
+    const unsigned short *depth_data = (const unsigned short *) depth_buffer.buf;
+    float *xyz_data = (float *) xyz_buffer.buf;
+    size_t height = depth_buffer.shape[0];
+    size_t width = depth_buffer.shape[1];
+    size_t i = 0;
+
+    for(size_t y = 0; y < height; y++) {
+        for(size_t x = 0; x < width; x++, i++) {
+            float *xptr = xyz_data + 0*width*height + i;
+            float *yptr = xyz_data + 1*width*height + i;
+            float *zptr = xyz_data + 2*width*height + i;
+            if(depth_data[i] == 0) {
+                *xptr = 0;
+                *yptr = 0;
+                *zptr = 0;
+            }else{
+                CoordinateConverter::convertDepthToWorld(
+                    depthStream, x, y, depth_data[i], 
+                    xptr, yptr, zptr);
+            }
+        }
+    }
+
+    return xyz;
+}
+
+PyObject *structure_xyz_to_theta(PyObject *self, PyObject *args, PyObject *kwargs) 
+{
+    Py_buffer xyz_buffer;
+    Py_buffer theta_buffer;
+    std::stringstream str;
+    PyObject* xyz = NULL;
+    PyObject* theta = NULL;
+    static char *argnoms[] = {"xyz", "theta", NULL};
+    PyArg_ParseTupleAndKeywords(args, kwargs, "OO", argnoms, &xyz, &theta);
+
+    xyz = check_xyz(xyz, &xyz_buffer, "xyz_to_theta", "xyz", 0, -1, -1);
+    if(xyz == NULL) return NULL;
+    theta = check_theta(theta, &theta_buffer, "xyz_to_theta", "theta", 1, 
+            xyz_buffer.shape[1], xyz_buffer.shape[2]);
+    if(theta == NULL) return NULL;
+        
+    const float *xyz_data = (const float *) xyz_buffer.buf;
+    float *theta_data = (float *) theta_buffer.buf;
+    size_t height = xyz_buffer.shape[1];
+    size_t width = xyz_buffer.shape[2];
+
+    std::cout << "begin theta calc" << std::endl;
+    for(size_t y = 0; y < height; y++) {
+        for(size_t x = 0; x < width; x++) {
+            if(y == 0 || x == 0) {
+                theta_data[y*width+x] = 1000; // invalid?
+                continue;
+            }
+            const float *xptr = (const float *)(xyz_data + 0*width*height); 
+            const float *yptr = (const float *)(xyz_data + 1*width*height);
+            const float *zptr = (const float *)(xyz_data + 2*width*height);
+            if(zptr[y*width+x] == 0) {
+                theta_data[y*width+x] = 1000; // invalid?
+            }else{
+                // pt1: [y-1][x]
+                // pt2: [y][x]
+                // pt3: [y][x-1]
+                // u = pt2-pt1
+                // v = pt3-pt1
+                // compute angle between x-z plane projection of 
+                // normal (pt1, pt2, pt3) and view vector ((0,0,1), i think) 
+                float ux = xptr[y*width+x] - xptr[(y-1)*width+x];
+                float uy = yptr[y*width+x] - yptr[(y-1)*width+x];
+                float uz = zptr[y*width+x] - zptr[(y-1)*width+x];
+
+                float vx = xptr[y*width+x-1] - xptr[(y-1)*width+x];
+                float vy = yptr[y*width+x-1] - yptr[(y-1)*width+x];
+                float vz = zptr[y*width+x-1] - zptr[(y-1)*width+x];
+
+                float nx = uy*vz - uz*vy;
+                float ny = uz*vx - ux*vz;
+                float nz = ux*vy - uy-vx;
+
+                float theta_rad = atan(nx / nz);
+                // atan will return -pi/2 to pi/2. 
+                // nz == 0 => nx/nz == inf => atan returns pi/2, yay!
+                theta_data[y*width+x] = theta_rad / M_PI * 180.0f;
+                std::cout << "theta[121, 161]=" << theta_data[y*width+x] << std::endl;
+                std::cout << " depends on x[" << (x-1
+            }
+        }
+    }
+    std::cout << "end theta calc" << std::endl;
+    return theta;
+}
+
 static PyMethodDef methods[] = {
     {"init", &structure_init, METH_VARARGS, 
         "Initializer function. Call this before trying to read the structure sensor."},
     {"read_frame", (PyCFunction) &structure_read_frame, METH_VARARGS | METH_KEYWORDS, 
         "reads a frame from the depth sensor and infrared camera and returns (depthFrame, irFrame). Can be given a timeout. will return None if timeout is exceeded."},
+    {"depth_to_xyz", (PyCFunction) &structure_depth_to_xyz, METH_VARARGS | METH_KEYWORDS, "twiddle?"},
+    {"xyz_to_theta", (PyCFunction) &structure_xyz_to_theta, METH_VARARGS | METH_KEYWORDS, "twaddle?"},
     {"destroy", &structure_destroy, METH_VARARGS, 
         "close function. Call this before stopping your program."},
     {NULL} /*sentinal*/
