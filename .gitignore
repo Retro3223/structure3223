@@ -1,5 +1,13 @@
 *.so
+*.swp
+*.deb
 .ropeproject
 .ipynb_checkpoints
 __pycache__
 build
+raspberrypi/OpenCV3.1/opencv_3.1-1/
+raspberrypi/OpenNI2/OpenNI-Linux-Arm-2.2.tar.bz2
+raspberrypi/OpenNI2/OpenNI-Linux-Arm-2.2/
+raspberrypi/OpenNI2/openni_2.2-1/
+raspberrypi/mjpg-streamer/mjpg-streamer-1.0/
+

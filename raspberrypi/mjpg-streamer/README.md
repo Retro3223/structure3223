@@ -4,6 +4,10 @@ Roughly, I grabbed https://github.com/jacksonliam/mjpg-streamer and ran
 
 
 make
+
+then created directory mjpg-streamer-1.0
+AND created directories bin and lib inside it because the makefile is dumb and doesnt, then 
+
 make install DESTDIR=mjpg-streamer-1.0
 bash build.sh
 
