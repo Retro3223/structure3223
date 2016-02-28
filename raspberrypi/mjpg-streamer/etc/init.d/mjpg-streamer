@@ -1,5 +1,15 @@
 #!/bin/bash
 
+### BEGIN INIT INFO
+# Provides:          mjpg-streamer
+# Required-Start:    
+# Required-Stop:     
+# Default-Start:     
+# Default-Stop:      
+# Short-Description: mjpg-streamer service
+# Description:       pipe webcam output over http
+### END INIT INFO
+
 source /etc/default/mjpg-streamer
 
 startthings() {

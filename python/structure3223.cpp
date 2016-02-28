@@ -443,7 +443,7 @@ PyObject *structure_xyz_to_theta(PyObject *self, PyObject *args, PyObject *kwarg
                 // nz == 0 => nx/nz == inf => atan returns pi/2, yay!
                 theta_data[y*width+x] = theta_rad / M_PI * 180.0f;
                 std::cout << "theta[121, 161]=" << theta_data[y*width+x] << std::endl;
-                std::cout << " depends on x[" << (x-1
+                //std::cout << " depends on x[" << (x-1
             }
         }
     }
