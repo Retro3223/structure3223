@@ -1,7 +1,7 @@
 # first camera
 
 PIDFILE[1]=/var/run/mjpg-streamer1.pid
-INPUT[1]="input_uvc.so --device /dev/video0 -f 10 -r 320x240"
+INPUT[1]="input_uvc.so --device /dev/video0 -f 30 -r 320x240"
 
 OUTPUT[1]="output_http.so -w /www"
 PORT[1]=5800
@@ -11,3 +11,8 @@ INPUT[2]="input_file.so --folder /opt --name structure.jpg"
 
 OUTPUT[2]="output_http.so -w /www"
 PORT[2]=5802
+
+INPUT[3]="input_uvc.so --device /dev/video1 -f 30 -r 320x240"
+
+OUTPUT[3]="output_http.so -w /www"
+PORT[3]=5803
