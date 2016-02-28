@@ -7,7 +7,7 @@ OUTPUT[1]="output_http.so -w /www"
 PORT[1]=5800
 
 PIDFILE[2]=/var/run/mjpg-streamer2.pid
-INPUT[2]="input_file.so --folder /opt --name structure.jpg"
+INPUT[2]="input_file.so --folder /opt --name structure.jpg --delay 0"
 
 OUTPUT[2]="output_http.so -w /www"
 PORT[2]=5802
