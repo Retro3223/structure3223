@@ -1,6 +1,6 @@
 Package: openni
 Version: 2.2-1
-Section: base
+Section: libs
 Priority: optional
 Architecture: armhf
 Depends: libusb-1.0-0, libudev1

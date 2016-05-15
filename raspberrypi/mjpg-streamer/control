@@ -1,6 +1,6 @@
 Package: mjpg-streamer
 Version: 1.0
-Section: base
+Section: libs
 Priority: optional
 Architecture: armhf
 Depends: libjpeg8, libraspberrypi0

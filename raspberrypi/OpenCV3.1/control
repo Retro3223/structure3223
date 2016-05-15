@@ -1,6 +1,6 @@
 Package: opencv
 Version: 3.1-1
-Section: base
+Section: libs
 Priority: optional
 Architecture: armhf
 Depends: libstdc++6, libgcc1, zlib1g, libjpeg8, libpng12-0, libjasper1, libjpeg62-turbo, libpython3.4, python3, python3-numpy
