@@ -21,7 +21,7 @@ startthings() {
             INPUT="${INPUT[$i]}"
             OUTPUT="${OUTPUT[$i]} -p ${PORT}"
             start-stop-daemon --pidfile=$PIDFILE -b -m --start \
-                --exec /bin/mjpg_streamer -- -i "${INPUT}" -o "${OUTPUT}"
+                --exec /usr/local/bin/mjpg_streamer -- -i "${INPUT}" -o "${OUTPUT}"
             echo "mjpg_streamer -i _${INPUT}_ -o _${OUTPUT}_"
             echo "."
         fi
