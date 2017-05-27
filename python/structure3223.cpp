@@ -570,29 +570,30 @@ PyObject *uint16_into_uint8(PyObject *self, PyObject *args, PyObject *kwargs) {
     std::stringstream str;
     PyObject* src = NULL;
     PyObject* dest = NULL;
+    char *funcnom = "uint16_into_uint8";
     static char *argnoms[] = {"src", "dst", NULL};
     PyArg_ParseTupleAndKeywords(args, kwargs, "OO", argnoms, &src, &dest);
 
     if(src == NULL) {
-        str << "uint16_into_uint8: parameter src missing";
+        str << funcnom << ": parameter src missing";
         ERR_N_DIE_NO_NI(str.str().c_str());
         return NULL;
     }
     if(dest == NULL) {
-        str << "uint16_into_uint8: parameter dst missing";
+        str << funcnom << ": parameter dst missing";
         ERR_N_DIE_NO_NI(str.str().c_str());
         return NULL;
     }
 
-    if(!check_buffer(src, &src_buffer, "uint16_into_uint8", "src", 0, -1, -1, -1)) {
+    if(!check_buffer(src, &src_buffer, funcnom, "src", 0, -1, -1, -1)) {
         return NULL;
     }
     if(src_buffer.itemsize != 2) {
-        str << "uint16_into_uint8: src must be of type ushort[:, :]";
+        str << funcnom << ": src must be of type ushort[:, :]";
         ERR_N_DIE_NO_NI(str.str().c_str());
         return NULL;
     }
-    if(!check_buffer(dest, &dest_buffer, "uint16_into_uint8", "dst", 1, 
+    if(!check_buffer(dest, &dest_buffer, funcnom, "dst", 1, 
                 src_buffer.shape[0], 
                 src_buffer.shape[1], 
                 src_buffer.shape[0] * src_buffer.shape[1])) {
@@ -611,6 +612,157 @@ PyObject *uint16_into_uint8(PyObject *self, PyObject *args, PyObject *kwargs) {
     return dest;
 }
 
+PyObject *uint8_mask_uint16(PyObject *self, PyObject *args, PyObject *kwargs) {
+    Py_buffer src_buffer;
+    Py_buffer dest_buffer;
+    std::stringstream str;
+    PyObject* src = NULL;
+    PyObject* dest = NULL;
+    char *funcnom = "uint8_mask_uint16";
+    static char *argnoms[] = {"src", "dst", NULL};
+    PyArg_ParseTupleAndKeywords(args, kwargs, "OO", argnoms, &src, &dest);
+
+    if(src == NULL) {
+        str << funcnom << ": parameter src missing";
+        ERR_N_DIE_NO_NI(str.str().c_str());
+        return NULL;
+    }
+    if(dest == NULL) {
+        str << funcnom << ": parameter dst missing";
+        ERR_N_DIE_NO_NI(str.str().c_str());
+        return NULL;
+    }
+
+    if(!check_buffer(src, &src_buffer, funcnom, "src", 0, -1, -1, -1)) {
+        return NULL;
+    }
+    if(src_buffer.itemsize != 1) {
+        str << funcnom << ": src must be of type ubyte[:, :]";
+        ERR_N_DIE_NO_NI(str.str().c_str());
+        return NULL;
+    }
+    if(!check_buffer(dest, &dest_buffer, funcnom, "dst", 1, 
+                src_buffer.shape[0], 
+                src_buffer.shape[1], 
+                src_buffer.shape[0] * src_buffer.shape[1] * 2)) {
+        return NULL;
+    }
+
+    unsigned char *srcbuf = (unsigned char*) src_buffer.buf;
+    unsigned short *destbuf = (unsigned short*) dest_buffer.buf;
+    size_t height = src_buffer.shape[0];
+    size_t width = src_buffer.shape[1];
+
+    for(size_t i = 0; i < width * height; i++) {
+        destbuf[i] = srcbuf[i] == 0 ? 0 : 0xffff;
+    }
+
+    return dest;
+}
+
+PyObject *uint16_threshold1(PyObject *self, PyObject *args, PyObject *kwargs) {
+    Py_buffer ir_buffer;
+    Py_buffer depth_buffer;
+    Py_buffer dest_buffer;
+    std::stringstream str;
+    PyObject* ir = NULL;
+    PyObject* depth = NULL;
+    PyObject* dest = NULL;
+    char *funcnom = "uint16_threshold1";
+    static char *argnoms[] = {"ir", "depth", "dst", NULL};
+    PyArg_ParseTupleAndKeywords(args, kwargs, "OOO", argnoms, &ir, &depth, &dest);
+
+    if(ir == NULL) {
+        str << funcnom << ": parameter ir missing";
+        ERR_N_DIE_NO_NI(str.str().c_str());
+        return NULL;
+    }
+    if(depth == NULL) {
+        str << funcnom << ": parameter depth missing";
+        ERR_N_DIE_NO_NI(str.str().c_str());
+        return NULL;
+    }
+    if(dest == NULL) {
+        str << funcnom << ": parameter dst missing";
+        ERR_N_DIE_NO_NI(str.str().c_str());
+        return NULL;
+    }
+
+    if(!check_buffer(ir, &ir_buffer, funcnom, "ir", 0, -1, -1, -1)) {
+        return NULL;
+    }
+    if(ir_buffer.itemsize != 2) {
+        str << funcnom << ": ir must be of type ushort[:, :]";
+        ERR_N_DIE_NO_NI(str.str().c_str());
+        return NULL;
+    }
+
+    if(!check_buffer(depth, &depth_buffer, funcnom, "depth", 0, 
+                ir_buffer.shape[0], 
+                ir_buffer.shape[1], 
+                ir_buffer.shape[0] * ir_buffer.shape[1] * 2)) {
+        return NULL;
+    }
+
+    if(!check_buffer(dest, &dest_buffer, funcnom, "dst", 1, 
+                ir_buffer.shape[0], 
+                ir_buffer.shape[1], 
+                ir_buffer.shape[0] * ir_buffer.shape[1] * 2)) {
+        return NULL;
+    }
+
+    unsigned short *irbuf = (unsigned short*) ir_buffer.buf;
+    unsigned short *depthbuf = (unsigned short*) depth_buffer.buf;
+    unsigned short *destbuf = (unsigned short*) dest_buffer.buf;
+    size_t height = ir_buffer.shape[0];
+    size_t width = ir_buffer.shape[1];
+
+    for(size_t i = 0; i < width * height; i++) {
+        if(irbuf[i] < 300 || depthbuf[i] > 9000) {
+            destbuf[i] = 0;
+        }else{
+            destbuf[i] = 0xffff;
+        }
+    }
+
+    return dest;
+}
+
+PyObject *uint8_threshold2(PyObject *self, PyObject *args, PyObject *kwargs) {
+    Py_buffer dest_buffer;
+    std::stringstream str;
+    int threshold = 50;
+    PyObject* dest = NULL;
+    char *funcnom = "uint16_threshold1";
+    static char *argnoms[] = {"threshold", "dst", NULL};
+    PyArg_ParseTupleAndKeywords(args, kwargs, "iO", argnoms, &threshold, &dest);
+
+    if(dest == NULL) {
+        str << funcnom << ": parameter dst missing";
+        ERR_N_DIE_NO_NI(str.str().c_str());
+        return NULL;
+    }
+
+    if(!check_buffer(dest, &dest_buffer, funcnom, "dst", 1, -1, -1, -1)) {
+        return NULL;
+    }
+    if(dest_buffer.itemsize != 1) {
+        str << funcnom << ": dst must be of type ubyte[:, :]";
+        ERR_N_DIE_NO_NI(str.str().c_str());
+        return NULL;
+    }
+
+    unsigned char *destbuf = (unsigned char*) dest_buffer.buf;
+    size_t height = dest_buffer.shape[0];
+    size_t width = dest_buffer.shape[1];
+
+    for(size_t i = 0; i < width * height; i++) {
+        destbuf[i] = destbuf[i] > threshold ? 0xff : 0;
+    }
+
+    return dest;
+}
+
 static PyMethodDef methods[] = {
     {"init", &structure_init, METH_VARARGS, 
         "Initializer function. Call this before trying to read the structure sensor."},
@@ -620,6 +772,9 @@ static PyMethodDef methods[] = {
     {"depth_to_xyz2", (PyCFunction) &structure_depth_to_xyz2, METH_VARARGS | METH_KEYWORDS, "twiddle?"},
     {"xyz_to_theta", (PyCFunction) &structure_xyz_to_theta, METH_VARARGS | METH_KEYWORDS, "twaddle?"},
     {"uint16_into_uint8", (PyCFunction) &uint16_into_uint8, METH_VARARGS | METH_KEYWORDS, "twaddle?"},
+    {"uint8_mask_uint16", (PyCFunction) &uint8_mask_uint16, METH_VARARGS | METH_KEYWORDS, "twaddle?"},
+    {"uint16_threshold1", (PyCFunction) &uint16_threshold1, METH_VARARGS | METH_KEYWORDS, "twaddle?"},
+    {"uint8_threshold2", (PyCFunction) &uint8_threshold2, METH_VARARGS | METH_KEYWORDS, "twaddle?"},
     {"destroy", &structure_destroy, METH_VARARGS, 
         "close function. Call this before stopping your program."},
     {NULL} /*sentinal*/
