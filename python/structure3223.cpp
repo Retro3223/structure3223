@@ -570,8 +570,19 @@ PyObject *uint16_into_uint8(PyObject *self, PyObject *args, PyObject *kwargs) {
     std::stringstream str;
     PyObject* src = NULL;
     PyObject* dest = NULL;
-    static char *argnoms[] = {"src", "dest", NULL};
+    static char *argnoms[] = {"src", "dst", NULL};
     PyArg_ParseTupleAndKeywords(args, kwargs, "OO", argnoms, &src, &dest);
+
+    if(src == NULL) {
+        str << "uint16_into_uint8: parameter src missing";
+        ERR_N_DIE_NO_NI(str.str().c_str());
+        return NULL;
+    }
+    if(dest == NULL) {
+        str << "uint16_into_uint8: parameter dst missing";
+        ERR_N_DIE_NO_NI(str.str().c_str());
+        return NULL;
+    }
 
     if(!check_buffer(src, &src_buffer, "uint16_into_uint8", "src", 0, -1, -1, -1)) {
         return NULL;
@@ -581,15 +592,15 @@ PyObject *uint16_into_uint8(PyObject *self, PyObject *args, PyObject *kwargs) {
         ERR_N_DIE_NO_NI(str.str().c_str());
         return NULL;
     }
-    if(!check_buffer(dest, &dest_buffer, "uint16_into_uint8", "dest", 0, 
+    if(!check_buffer(dest, &dest_buffer, "uint16_into_uint8", "dst", 1, 
                 src_buffer.shape[0], 
                 src_buffer.shape[1], 
                 src_buffer.shape[0] * src_buffer.shape[1])) {
         return NULL;
     }
 
-    unsigned char *srcbuf = (unsigned char*) src_buffer.buf;
-    unsigned short *destbuf = (unsigned short*) src_buffer.buf;
+    unsigned short *srcbuf = (unsigned short*) src_buffer.buf;
+    unsigned char *destbuf = (unsigned char*) dest_buffer.buf;
     size_t height = src_buffer.shape[0];
     size_t width = src_buffer.shape[1];
 
