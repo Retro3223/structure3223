@@ -5,12 +5,16 @@
 #include <string.h>
 #include <numpy/arrayobject.h>
 #include <numpy/npy_common.h>
+#include "math.h"
 
 
 static VideoFrameRef depthFrame, irFrame;
 static Device device;
 static bool structure_initialized;
 static VideoStream depthStream, irStream;
+
+static int conversionFactorCount;
+static struct XYZConversionFactor conversionFactors[2];
 
 PyObject *structure_init(PyObject *self, PyObject *args) {
     import_array(); // required for to use numpy C-API
@@ -34,9 +38,33 @@ PyObject *structure_init(PyObject *self, PyObject *args) {
     if (rc != STATUS_OK) ERR_N_DIE("ir stream start failed");
 
 
+    initFactors(&conversionFactors[0], 240, 320);
+    conversionFactorCount = 1;
+
     structure_initialized = true;
     Py_INCREF(Py_None);
     return Py_None;
+}
+
+void initFactors(struct XYZConversionFactor *conversionFactor, int yDim, int xDim) {
+    conversionFactors->xDim = xDim;
+    conversionFactors->yDim = yDim;
+    conversionFactors->xFactors = (float *) malloc(sizeof(float) * xDim);
+    conversionFactors->yFactors = (float *) malloc(sizeof(float) * yDim);
+    double horizontal_fov = 1.02586;
+    double vertical_fov = 0.799344;
+    double xz_factor = tan(horizontal_fov / 2) * 2;
+    double yz_factor = tan(vertical_fov / 2) * 2;
+
+    for(int i = 0; i < xDim; i++) {
+        float nx = (((float)i) / xDim - 0.5) * xz_factor;
+        conversionFactors->xFactors[i] = nx;
+    }
+
+    for(int i = 0; i < yDim; i++) {
+        float ny = (0.5 - ((float)i) / yDim) * yz_factor;
+        conversionFactors->yFactors[i] = ny;
+    }
 }
 
 PyObject *chooseDepthVideoMode() {
@@ -385,6 +413,64 @@ PyObject *structure_depth_to_xyz(
     return xyz;
 }
 
+PyObject *structure_depth_to_xyz2(
+        PyObject *self, PyObject *args, PyObject *kwargs) {
+    Py_buffer depth_buffer;
+    Py_buffer xyz_buffer;
+    std::stringstream str;
+    PyObject* depth = NULL;
+    PyObject* xyz = NULL;
+    static char *argnoms[] = {"depth", "xyz", NULL};
+    PyArg_ParseTupleAndKeywords(args, kwargs, "OO", argnoms, &depth, &xyz);
+
+    depth = check_buffer(depth, &depth_buffer, "depth_to_xyz", "depth", 0, -1, -1, -1);
+    if(depth == NULL) return NULL;
+    xyz = check_xyz(xyz, &xyz_buffer, "depth_to_xyz", "xyz", 1, 
+            depth_buffer.shape[0],
+            depth_buffer.shape[1]);
+    if(xyz == NULL) return NULL;
+
+    struct XYZConversionFactor conversionFactor; 
+    int found = 0;
+    for(int i = 0; i < conversionFactorCount; i++) {
+        if(conversionFactors[i].yDim == depth_buffer.shape[0] && conversionFactors[i].xDim == depth_buffer.shape[1]) {
+            conversionFactor = conversionFactors[i];
+            found = 1;
+            break;
+        }
+    }
+    if(!found) {
+        std::stringstream str;
+        str << "No conversion factor found for dimensions (" << depth_buffer.shape[0] << ", " << depth_buffer.shape[1] << ").";
+        ERR_N_DIE_NO_NI(str.str().c_str());
+        return NULL;
+    }
+    const unsigned short *depth_data = (const unsigned short *) depth_buffer.buf;
+    float *xyz_data = (float *) xyz_buffer.buf;
+    size_t height = depth_buffer.shape[0];
+    size_t width = depth_buffer.shape[1];
+    size_t i = 0;
+
+    for(size_t y = 0; y < height; y++) {
+        for(size_t x = 0; x < width; x++, i++) {
+            float *xptr = xyz_data + 0*width*height + i;
+            float *yptr = xyz_data + 1*width*height + i;
+            float *zptr = xyz_data + 2*width*height + i;
+            if(depth_data[i] == 0) {
+                *xptr = 0;
+                *yptr = 0;
+                *zptr = 0;
+            }else{
+                *xptr = conversionFactor.xFactors[x] * depth_data[i];
+                *yptr = conversionFactor.yFactors[y] * depth_data[i];
+                *zptr = depth_data[i];
+            }
+        }
+    }
+
+    return xyz;
+}
+
 PyObject *structure_xyz_to_theta(PyObject *self, PyObject *args, PyObject *kwargs) 
 {
     Py_buffer xyz_buffer;
@@ -457,6 +543,7 @@ static PyMethodDef methods[] = {
     {"read_frame", (PyCFunction) &structure_read_frame, METH_VARARGS | METH_KEYWORDS, 
         "reads a frame from the depth sensor and infrared camera and returns (depthFrame, irFrame). Can be given a timeout. will return None if timeout is exceeded."},
     {"depth_to_xyz", (PyCFunction) &structure_depth_to_xyz, METH_VARARGS | METH_KEYWORDS, "twiddle?"},
+    {"depth_to_xyz2", (PyCFunction) &structure_depth_to_xyz2, METH_VARARGS | METH_KEYWORDS, "twiddle?"},
     {"xyz_to_theta", (PyCFunction) &structure_xyz_to_theta, METH_VARARGS | METH_KEYWORDS, "twaddle?"},
     {"destroy", &structure_destroy, METH_VARARGS, 
         "close function. Call this before stopping your program."},

@@ -49,3 +49,13 @@ PyObject *check_theta(
         PyObject *theta, Py_buffer *buffer, 
         const char *funcnom, const char *bufnom, int write, 
         int expected_y_shape, int expected_x_shape);
+
+struct XYZConversionFactor {
+    int xDim;
+    int yDim;
+
+    float *xFactors;
+    float *yFactors;
+};
+
+void initFactors(struct XYZConversionFactor *conversionFactor, int yDim, int xDim);
