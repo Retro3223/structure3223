@@ -14,7 +14,7 @@ static bool structure_initialized;
 static VideoStream depthStream, irStream;
 
 static int conversionFactorCount;
-static struct XYZConversionFactor conversionFactors[2];
+static struct XYZConversionFactor *conversionFactors = NULL;
 
 PyObject *structure_init(PyObject *self, PyObject *args) {
     import_array(); // required for to use numpy C-API
@@ -37,16 +37,48 @@ PyObject *structure_init(PyObject *self, PyObject *args) {
     rc = irStream.start();
     if (rc != STATUS_OK) ERR_N_DIE("ir stream start failed");
 
-
-    initFactors(&conversionFactors[0], 240, 320);
-    conversionFactorCount = 1;
-
     structure_initialized = true;
     Py_INCREF(Py_None);
     return Py_None;
 }
 
-void initFactors(struct XYZConversionFactor *conversionFactor, int yDim, int xDim) {
+void initConversionFactors() {
+    conversionFactorCount = 5;
+    conversionFactors = (struct XYZConversionFactor *)
+        malloc(sizeof(struct XYZConversionFactor) * conversionFactorCount);
+
+    for(int i = 0; i < conversionFactorCount; i++) {
+        conversionFactors->used = 0;
+    }
+
+    initFactor(&conversionFactors[0], 240, 320);
+}
+
+struct XYZConversionFactor *getConversionFactor(int yDim, int xDim) {
+    struct XYZConversionFactor *unused = NULL;
+    struct XYZConversionFactor *cf;
+    for(int i = 0; i < conversionFactorCount; i++) {
+        cf = &conversionFactors[i];
+        if(!cf->used && unused == NULL) {
+            unused = cf;
+        }
+        if(cf->used && cf->yDim == yDim && cf->xDim == xDim) {
+            return cf;
+        }
+    }
+
+    if(unused != NULL) {
+        initFactor(unused, yDim, xDim);
+    }else{
+        std::stringstream str;
+        str << "No conversion factor available for dimensions (" 
+            << yDim << ", " << xDim << ").";
+        ERR_N_DIE_NO_NI(str.str().c_str());
+    }
+    return unused;
+}
+
+void initFactor(struct XYZConversionFactor *conversionFactor, int yDim, int xDim) {
     conversionFactors->xDim = xDim;
     conversionFactors->yDim = yDim;
     conversionFactors->xFactors = (float *) malloc(sizeof(float) * xDim);
@@ -65,6 +97,8 @@ void initFactors(struct XYZConversionFactor *conversionFactor, int yDim, int xDi
         float ny = (0.5 - ((float)i) / yDim) * yz_factor;
         conversionFactors->yFactors[i] = ny;
     }
+
+    conversionFactor->used = 1;
 }
 
 PyObject *chooseDepthVideoMode() {
@@ -430,19 +464,12 @@ PyObject *structure_depth_to_xyz2(
             depth_buffer.shape[1]);
     if(xyz == NULL) return NULL;
 
-    struct XYZConversionFactor conversionFactor; 
-    int found = 0;
-    for(int i = 0; i < conversionFactorCount; i++) {
-        if(conversionFactors[i].yDim == depth_buffer.shape[0] && conversionFactors[i].xDim == depth_buffer.shape[1]) {
-            conversionFactor = conversionFactors[i];
-            found = 1;
-            break;
-        }
+    if(conversionFactors == NULL) {
+        initConversionFactors();
     }
-    if(!found) {
-        std::stringstream str;
-        str << "No conversion factor found for dimensions (" << depth_buffer.shape[0] << ", " << depth_buffer.shape[1] << ").";
-        ERR_N_DIE_NO_NI(str.str().c_str());
+    struct XYZConversionFactor *conversionFactor = getConversionFactor(
+            depth_buffer.shape[0], depth_buffer.shape[1]);
+    if(conversionFactor == NULL) {
         return NULL;
     }
     const unsigned short *depth_data = (const unsigned short *) depth_buffer.buf;
@@ -461,8 +488,8 @@ PyObject *structure_depth_to_xyz2(
                 *yptr = 0;
                 *zptr = 0;
             }else{
-                *xptr = conversionFactor.xFactors[x] * depth_data[i];
-                *yptr = conversionFactor.yFactors[y] * depth_data[i];
+                *xptr = conversionFactor->xFactors[x] * depth_data[i];
+                *yptr = conversionFactor->yFactors[y] * depth_data[i];
                 *zptr = depth_data[i];
             }
         }
@@ -537,6 +564,42 @@ PyObject *structure_xyz_to_theta(PyObject *self, PyObject *args, PyObject *kwarg
     return theta;
 }
 
+PyObject *uint16_into_uint8(PyObject *self, PyObject *args, PyObject *kwargs) {
+    Py_buffer src_buffer;
+    Py_buffer dest_buffer;
+    std::stringstream str;
+    PyObject* src = NULL;
+    PyObject* dest = NULL;
+    static char *argnoms[] = {"src", "dest", NULL};
+    PyArg_ParseTupleAndKeywords(args, kwargs, "OO", argnoms, &src, &dest);
+
+    if(!check_buffer(src, &src_buffer, "uint16_into_uint8", "src", 0, -1, -1, -1)) {
+        return NULL;
+    }
+    if(src_buffer.itemsize != 2) {
+        str << "uint16_into_uint8: src must be of type ushort[:, :]";
+        ERR_N_DIE_NO_NI(str.str().c_str());
+        return NULL;
+    }
+    if(!check_buffer(dest, &dest_buffer, "uint16_into_uint8", "dest", 0, 
+                src_buffer.shape[0], 
+                src_buffer.shape[1], 
+                src_buffer.shape[0] * src_buffer.shape[1])) {
+        return NULL;
+    }
+
+    unsigned char *srcbuf = (unsigned char*) src_buffer.buf;
+    unsigned short *destbuf = (unsigned short*) src_buffer.buf;
+    size_t height = src_buffer.shape[0];
+    size_t width = src_buffer.shape[1];
+
+    for(size_t i = 0; i < width * height; i++) {
+        destbuf[i] = (unsigned char)((srcbuf[i]) >> 4);
+    }
+
+    return dest;
+}
+
 static PyMethodDef methods[] = {
     {"init", &structure_init, METH_VARARGS, 
         "Initializer function. Call this before trying to read the structure sensor."},
@@ -545,6 +608,7 @@ static PyMethodDef methods[] = {
     {"depth_to_xyz", (PyCFunction) &structure_depth_to_xyz, METH_VARARGS | METH_KEYWORDS, "twiddle?"},
     {"depth_to_xyz2", (PyCFunction) &structure_depth_to_xyz2, METH_VARARGS | METH_KEYWORDS, "twiddle?"},
     {"xyz_to_theta", (PyCFunction) &structure_xyz_to_theta, METH_VARARGS | METH_KEYWORDS, "twaddle?"},
+    {"uint16_into_uint8", (PyCFunction) &uint16_into_uint8, METH_VARARGS | METH_KEYWORDS, "twaddle?"},
     {"destroy", &structure_destroy, METH_VARARGS, 
         "close function. Call this before stopping your program."},
     {NULL} /*sentinal*/

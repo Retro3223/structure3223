@@ -51,6 +51,7 @@ PyObject *check_theta(
         int expected_y_shape, int expected_x_shape);
 
 struct XYZConversionFactor {
+    int used;
     int xDim;
     int yDim;
 
@@ -58,4 +59,4 @@ struct XYZConversionFactor {
     float *yFactors;
 };
 
-void initFactors(struct XYZConversionFactor *conversionFactor, int yDim, int xDim);
+void initFactor(struct XYZConversionFactor *conversionFactor, int yDim, int xDim);
